@@ -37,13 +37,33 @@ impl TokenRes {
 // holds a track analysis data from the API
 #[derive(Deserialize, Debug)]
 pub struct TrackAnalysis {
-    pub track: TrackSection
+    pub track: TrackSection,
+    pub bars: Vec<BarSection>
 }
 
-// a part of the TrackAnalysis
+// a part of the TrackAnalysis that holds track info
 #[derive(Deserialize, Debug)]
 pub struct TrackSection {
     pub tempo: f64
+}
+
+// a part of the TrackAnalysis that holds bar info
+#[derive(Deserialize, Debug)]
+pub struct BarSection {
+    pub start: f64,
+    pub duration: f64,
+    pub confidence: f64
+}
+
+// holds a playback state from an API
+#[derive(Deserialize, Debug)]
+pub struct PlaybackState {
+    pub item: ItemSection
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ItemSection {
+    pub name: String
 }
 
 // requests a token from an API
@@ -58,9 +78,18 @@ pub fn req_token(client: &Client) -> TokenRes {
 }
 
 // requests a track analysis from an API
-pub fn req_track_analysis(client: &Client, token: TokenRes, track_id: &str) -> TrackAnalysis {
-    let track_analysis = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
+pub fn req_track_analysis(client: &Client, token: &TokenRes, track_id: &str) -> TrackAnalysis {
+    let res = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
-    track_analysis.json::<TrackAnalysis>().expect("failed to convert track analysis to structs")
+    res.json::<TrackAnalysis>().expect("failed to convert track analysis to structs")
+}
+
+// requests a playback state from an API
+pub fn req_playback_state(client: &Client, token: &TokenRes) -> PlaybackState {
+    let res = client.get("https://api.spotify.com/v1/me/player")
+        .header("Authorization", token.get_token())
+        .send().expect("getting track audio analysis failed");
+    println!("{:#?}", res);
+    res.json::<PlaybackState>().expect("failed to convert playback state to structs")
 }

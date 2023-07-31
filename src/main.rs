@@ -10,12 +10,16 @@ fn main() {
     
     println!("{}", track_analysis.track.tempo);
 
-    for i in &track_analysis.bars {
-        println!("{:#?}", i);
-    }
-    println!("A number of bars: {}", track_analysis.bars.len());
+    // for i in &track_analysis.bars {
+    //     println!("{:#?}", i);
+    // }
+    // println!("A number of bars: {}", track_analysis.bars.len());
 
-    let playback_state = ledify::req_playback_state(&client, &token);
-    println!("Currently played song: {}", playback_state.item.name);
+    // let playback_state = ledify::req_playback_state(&client, &token);
+    // println!("Currently played song: {}", playback_state.item.name);
+
+    // println!("{}", ledify::get_encoded_hash());
+
+    ledify::req_user_auth();
 }
 

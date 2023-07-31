@@ -2,7 +2,9 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::prelude::*;
-
+use rand::{ thread_rng, Rng };
+use sha2::{ Sha256, Digest };
+use base64::{engine::general_purpose, Engine as _};
 
 // reads from the file and holds a client id and a secret
 #[derive(Deserialize, Debug)]
@@ -64,6 +66,39 @@ pub struct PlaybackState {
 #[derive(Deserialize, Debug)]
 pub struct ItemSection {
     pub name: String
+}
+
+fn gen_rand_string(len: i32) -> String {
+    let mut rng = thread_rng();
+    let mut text = String::new();
+    let possible = String::from("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    for _i in 0..len {
+        let index = rng.gen_range(0..possible.len());
+        let character = possible.get(index..index+1).expect("character choosing failed");
+        text.push_str(character);
+        
+    }
+    text
+}
+
+fn string_sha256(str: String) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(str.as_bytes());
+    format!("{:x}", hasher.finalize())    
+}
+
+pub fn get_encoded_hash() -> String {
+    let hash = string_sha256(gen_rand_string(128));
+    general_purpose::URL_SAFE_NO_PAD.encode(hash)
+}
+
+pub fn req_user_auth() {
+    let auth = ApiAuth::get_from_file();
+    let state = gen_rand_string(16);
+    let code_challenge = get_encoded_hash();
+    let params = vec![("response_type", "code"), ("client_id", &auth.client_id), ("scope", "user-read-playback-state user-read-currently-playing"), ("redirect_uri", "http://localhost:8080"), ("state", &state), ("code_challenge_method", "S256"), ("code_challenge", &code_challenge)];
+    
+    open::that("https://accounts.spotify.com/authorize?".to_owned() + &querystring::stringify(params)).unwrap();
 }
 
 // requests a token from an API

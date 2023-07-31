@@ -1,22 +1,30 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::fs::File;
-use std::io::prelude::*;
+use std::{fs::{ self, File }, net::TcpStream};
+use std::io::{prelude::*, BufReader};
+use rand::{ thread_rng, Rng };
+use sha2::{ Sha256, Digest };
+use base64::{engine::general_purpose, Engine as _};
+use std::net::TcpListener;
 
+const REDIRECT_URI: &str = "http://localhost:8080";
 
 // reads from the file and holds a client id and a secret
 #[derive(Deserialize, Debug)]
-pub struct ApiAuth {
+pub struct ClientID {
     client_id: String,
-    client_secret: String
 }
 
-impl ApiAuth {
-    pub fn get_from_file() -> ApiAuth {
-        let mut file = File::open("C:\\auth\\ledify_auth.json").expect("Unable to open a file");
+impl ClientID {
+    pub fn get_from_file() -> ClientID {
+        let mut file = File::open("client_id.json").expect("Unable to open a file");
         let mut buffer = String::new();
         file.read_to_string(&mut buffer).expect("failed to read from file");
         serde_json::from_str(&buffer).expect("convertion from auth file to struct failed")
+    }
+
+    pub fn get(&self) -> &str {
+        &self.client_id
     }
 }
 
@@ -37,30 +45,138 @@ impl TokenRes {
 // holds a track analysis data from the API
 #[derive(Deserialize, Debug)]
 pub struct TrackAnalysis {
-    pub track: TrackSection
+    pub track: TrackSection,
+    pub bars: Vec<BarSection>
 }
 
-// a part of the TrackAnalysis
+// a part of the TrackAnalysis that holds track info
 #[derive(Deserialize, Debug)]
 pub struct TrackSection {
     pub tempo: f64
 }
 
+// a part of the TrackAnalysis that holds bar info
+#[derive(Deserialize, Debug)]
+pub struct BarSection {
+    pub start: f64,
+    pub duration: f64,
+    pub confidence: f64
+}
+
+// holds a playback state from an API
+#[derive(Deserialize, Debug)]
+pub struct PlaybackState {
+    pub item: ItemSection
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ItemSection {
+    pub name: String
+}
+
+#[derive(Deserialize, Debug)]
+pub struct UserAuth {
+    pub code: String,
+    pub state: String,
+    pub code_verifier: String,
+}
+
+fn gen_rand_string(len: i32) -> String {
+    let mut rng = thread_rng();
+    let mut text = String::new();
+    let possible = String::from("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    for _i in 0..len {
+        let index = rng.gen_range(0..possible.len());
+        let character = possible.get(index..index+1).expect("character choosing failed");
+        text.push_str(character);
+        
+    }
+    text
+}
+
+fn get_encoded_hash(str: &String) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(str.as_bytes());
+    general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize())
+}
+
+pub fn req_user_auth(client_id: &ClientID) -> UserAuth {
+    let state = gen_rand_string(16);
+    let code_verifier = gen_rand_string(128);
+    let code_challenge = get_encoded_hash(&code_verifier);
+    let params = vec![("response_type", "code"), ("client_id", client_id.get()), ("scope", "user-read-playback-state user-read-currently-playing"), ("redirect_uri", REDIRECT_URI), ("state", &state), ("code_challenge_method", "S256"), ("code_challenge", &code_challenge)];
+    
+    open::that("https://accounts.spotify.com/authorize?".to_owned() + &querystring::stringify(params)).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:8080").expect("TcpListener cannot be set");
+
+    match listener.accept() {
+        Ok((socket, _addr)) => {
+            let user_auth = handle_connection(socket);
+            if user_auth.state != state {
+                panic!("States are not equal, aborting");
+            }
+            UserAuth{code_verifier, ..user_auth}
+
+        }
+        Err(e) => panic!("couldn't get client: {e:?}")
+    }
+}
+
+fn handle_connection(mut stream: TcpStream) -> UserAuth {
+    let buf_reader = BufReader::new(&mut stream);
+    let http_req: Vec<_> = buf_reader
+        .lines()
+        .map(|result| result.unwrap())
+        .take_while(|line| !line.is_empty())
+        .collect();
+
+    
+    let mut get_line: Vec<_> = http_req[0].split('?').collect();
+    get_line = get_line[1].split(' ').collect();
+    get_line = get_line[0].split('&').collect();
+    let code: Vec<_> = get_line[0].split('=').collect();
+    let code = code[1].to_string();
+    let state: Vec<_> = get_line[1].split('=').collect();
+    let state = state[1].to_string();
+    
+
+    let status = "HTTP/1.1 200 OK";
+    let contents = fs::read_to_string("ok.html").expect("reading from html file failed");
+    let len = contents.len();
+
+    let res = format!("{status}\r\nContent-Length: {len}\r\n\r\n{contents}");
+
+    stream.write_all(res.as_bytes()).expect("sending html failed");
+
+    UserAuth{code, state, code_verifier: String::new()}
+
+}
+
 // requests a token from an API
-pub fn req_token(client: &Client) -> TokenRes {
-    let auth = ApiAuth::get_from_file();
-    let params = [("grant_type", "client_credentials"), ("client_id", &auth.client_id), ("client_secret", &auth.client_secret)];
+pub fn req_token(client: &Client, user_auth: UserAuth, client_id: &ClientID) -> TokenRes {
+    let params = [("grant_type", "authorization_code"), ("code", &user_auth.code), ("redirect_uri", REDIRECT_URI), ("client_id", client_id.get()), ("code_verifier", &user_auth.code_verifier)];
     let res = client.post("https://accounts.spotify.com/api/token")
         .header("Content-Type", "application/x-www-from-urlencoded")
         .form(&params)
         .send().expect("sending failed");
+    // println!("{:#?}", res.text());
     res.json::<TokenRes>().expect("failed to convert to a struct")
 }
 
 // requests a track analysis from an API
-pub fn req_track_analysis(client: &Client, token: TokenRes, track_id: &str) -> TrackAnalysis {
-    let track_analysis = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
+pub fn req_track_analysis(client: &Client, token: &TokenRes, track_id: &str) -> TrackAnalysis {
+    let res = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
-    track_analysis.json::<TrackAnalysis>().expect("failed to convert track analysis to structs")
+    res.json::<TrackAnalysis>().expect("failed to convert track analysis to structs")
+}
+
+// requests a playback state from an API
+pub fn req_playback_state(client: &Client, token: &TokenRes) -> PlaybackState {
+    let res = client.get("https://api.spotify.com/v1/me/player")
+        .header("Authorization", token.get_token())
+        .send().expect("getting track audio analysis failed");
+    // println!("{:#?}", res.text());
+    res.json::<PlaybackState>().expect("failed to convert playback state to structs")
 }

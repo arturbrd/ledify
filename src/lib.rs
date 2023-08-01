@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::{fs::{ self, File }, net::TcpStream, io};
+use std::{fs::{ self, File }, net::TcpStream };
 use std::io::{prelude::*, BufReader};
 use rand::{ thread_rng, Rng };
 use sha2::{ Sha256, Digest };
@@ -55,7 +55,7 @@ impl TokenRes {
         self.token_type.clone() + " " + self.access_token.as_str()
     }
 
-    pub fn refresh_token(self, client: &Client, client_id: &ClientID) -> TokenRes {
+    fn refresh_token(self, client: &Client, client_id: &ClientID) -> TokenRes {
         let params = [("grant_type", "refresh_token"), ("refresh_token", self.refresh_token.as_str()), ("client_id", client_id.get())];
         let res = client.post("https://accounts.spotify.com/api/token")
             .header("Content-Type", "application/x-www-from-urlencoded")

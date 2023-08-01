@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::{fs::{ self, File }, net::TcpStream};
+use std::{fs::{ self, File }, net::TcpStream, io};
 use std::io::{prelude::*, BufReader};
 use rand::{ thread_rng, Rng };
 use sha2::{ Sha256, Digest };
@@ -34,11 +34,35 @@ impl ClientID {
 pub struct TokenRes {
     access_token: String,
     token_type: String,
+    expires_in: i32,
+    refresh_token: String
 }
 
 impl TokenRes {
+    pub fn new(client: &Client, client_id: &ClientID) -> TokenRes {
+        match read_refresh_token_from_file() {
+            Ok(refresh_token) => {
+                TokenRes{access_token: String::new(), token_type: String::new(), expires_in: 0, refresh_token}.refresh_token(client, client_id)
+            }
+            Err(e) => {     
+                println!("Error occured wher reading a file: {e}. Requesting a user auth");
+                req_token(client, req_user_auth(client_id), client_id)
+            }
+        }
+    }
+
     pub fn get_token(&self) -> String {
         self.token_type.clone() + " " + self.access_token.as_str()
+    }
+
+    pub fn refresh_token(self, client: &Client, client_id: &ClientID) -> TokenRes {
+        let params = [("grant_type", "refresh_token"), ("refresh_token", self.refresh_token.as_str()), ("client_id", client_id.get())];
+        let res = client.post("https://accounts.spotify.com/api/token")
+            .header("Content-Type", "application/x-www-from-urlencoded")
+            .form(&params)
+            .send().expect("requesting refreshing token failed");
+        res.json::<TokenRes>().expect("failed to convert refreshe_token response to struct")
+
     }
 }
 
@@ -161,7 +185,23 @@ pub fn req_token(client: &Client, user_auth: UserAuth, client_id: &ClientID) -> 
         .form(&params)
         .send().expect("sending failed");
     // println!("{:#?}", res.text());
-    res.json::<TokenRes>().expect("failed to convert to a struct")
+    let token_res = res.json::<TokenRes>().expect("failed to convert to a struct");
+    write_refresh_token_to_file(&token_res);
+
+    token_res
+}
+
+fn write_refresh_token_to_file(token_res: &TokenRes) {
+    let mut file = File::create("refresh_token.txt").expect("failed to create a file");
+    file.write_all(token_res.refresh_token.as_bytes()).expect("writing to file failed");
+}
+
+fn read_refresh_token_from_file() -> std::io::Result<String> {
+    let mut file = File::open("refresh_token.txt")?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+    let buf = String::from_utf8(buf).expect("failed to convert token from file to string");
+    Ok(buf)
 }
 
 // requests a track analysis from an API

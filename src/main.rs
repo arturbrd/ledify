@@ -1,8 +1,10 @@
-use std::{time::{Duration, Instant}, thread};
+use std::{time::{Duration, Instant}, thread::{self, JoinHandle}};
 
 use ledify::TokenRes;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
+
+const SLEEP_TIME: Duration = Duration::from_millis(3000);
 
 fn main() {
     let client = reqwest::blocking::Client::new();
@@ -11,35 +13,48 @@ fn main() {
     let token = TokenRes::new(&client, &client_id);
 
     let mut playback_state: ledify::PlaybackState = Default::default();
-    let mut now;
-    let mut progress;
+    let mut now = Instant::now();
+    let mut progress = Default::default();
     let mut track_analysis = Default::default();
     
     let (mut tx, mut rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
 
-    let mut beats_thread: Option<thread::JoinHandle<_>> = None;
+    let mut beats_thread: Option<thread::JoinHandle<()>> = None::<JoinHandle<()>>;
 
     loop {
         let new_playback_state = match ledify::req_playback_state(&client, &token) {
             Ok(res) => res,
-            Err(_) => continue
+            Err(_) => {
+                thread::sleep(SLEEP_TIME);
+                continue;
+            }
         };
         
-        if new_playback_state.item.id != playback_state.item.id {
+        if !new_playback_state.is_playing {
+            beats_thread = stop_thread(beats_thread, tx.clone());
+            thread::sleep(SLEEP_TIME);
+            continue;
+            
+        }
+        let another_track = new_playback_state.item.id != playback_state.item.id;
+        if another_track || (progress + now.elapsed()) - Duration::from_millis(playback_state.progress_ms as u64) > Duration::from_millis(600) {
             playback_state = new_playback_state;
             now = Instant::now();
             progress = Duration::from_millis(playback_state.progress_ms as u64);
 
-            track_analysis = match ledify::req_track_analysis(&client, &token, &playback_state.item.id) {
-                Ok(res) => res,
-                Err(e) => continue
-            };
-
-            tx.send(true).unwrap();
-            if let Some(el) = beats_thread {
-                el.join().unwrap();
+            if another_track {
+                track_analysis = match ledify::req_track_analysis(&client, &token, &playback_state.item.id) {
+                    Ok(res) => res,
+                        Err(_) => {
+                        thread::sleep(SLEEP_TIME);
+                        continue;
+                    }
+                };
             }
-            //stop thread
+
+            
+            beats_thread = stop_thread(beats_thread, tx);
+
             (tx, rx) = mpsc::channel();
             let mut artists_string = String::new();
             for i in playback_state.item.artists {
@@ -49,10 +64,22 @@ fn main() {
             artists_string.pop();
             artists_string.pop();
 
+            let name = if playback_state.item.name.len() > 16 {
+                playback_state.item.name[..16].to_owned()
+            } else {
+                playback_state.item.name
+            };
+            artists_string = if artists_string.len() > 16 {
+                artists_string[..16].to_owned()
+            } else {
+                artists_string
+            };
+            let tatums = track_analysis.tatums.clone();
             beats_thread = Some(thread::spawn(move || {
-                iter_beats(track_analysis.beats, now, progress, rx, &playback_state.item.name, &artists_string);
+                iter_beats(tatums, now, progress, rx, &name, &artists_string);
             }));
-        }        
+            thread::sleep(SLEEP_TIME);
+        }   
     }
 }
 
@@ -68,6 +95,7 @@ fn send_over_usb(title: &str, artists: &str, blink: bool) {
 }
 
 fn iter_beats(beats: Vec<ledify::BBTSection>, now: Instant, progress: Duration, rx: Receiver<bool>, name: &str, artists: &str) {
+    let latency = Duration::from_millis(5);
     for i in beats {
         if rx.try_recv().unwrap_or(false) {
             return;
@@ -79,8 +107,19 @@ fn iter_beats(beats: Vec<ledify::BBTSection>, now: Instant, progress: Duration, 
                 if progress + now.elapsed() >= Duration::from_secs_f64(i.start + i.duration) {
                     break;
                 }
+                thread::sleep(latency);
             }
             send_over_usb(name, artists, true);
+            // println!("{:#?}", i);
         }
     }
+}
+
+fn stop_thread(thread_handle: Option<thread::JoinHandle<()>>, tx: mpsc::Sender<bool>) -> Option<JoinHandle<()>> {
+    if let Some(el) = thread_handle {
+        let _ = tx.send(true);
+        el.join().unwrap();
+        return None;
+    }
+    thread_handle
 }

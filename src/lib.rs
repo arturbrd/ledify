@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::{fs::{ self, File }, net::TcpStream, string };
+use std::{fs::{ self, File }, net::TcpStream };
 use std::io::{prelude::*, BufReader};
 use rand::{ thread_rng, Rng };
 use sha2::{ Sha256, Digest };
@@ -63,7 +63,7 @@ impl TokenRes {
             .header("Content-Type", "application/x-www-from-urlencoded")
             .form(&params)
             .send().expect("requesting refreshing token failed");
-        //println!("{:#?}", res.text());
+        println!("refresh token requested");
         
         let token_res = res.json::<TokenRes>().expect("failed to convert refresh_token response to struct");
         write_refresh_token_to_file(&token_res);
@@ -78,7 +78,8 @@ impl TokenRes {
 pub struct TrackAnalysis {
     pub track: TrackSection,
     pub bars: Vec<BBTSection>,
-    pub beats: Vec<BBTSection>
+    pub beats: Vec<BBTSection>,
+    pub tatums: Vec<BBTSection>
 }
 
 // a part of the TrackAnalysis that holds track info
@@ -88,7 +89,7 @@ pub struct TrackSection {
 }
 
 // a part of the TrackAnalysis that holds bar info
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct BBTSection {
     pub start: f64,
     pub duration: f64,
@@ -154,6 +155,8 @@ pub fn req_user_auth(client_id: &ClientID) -> UserAuth {
     match listener.accept() {
         Ok((socket, _addr)) => {
             let user_auth = handle_connection(socket);
+            println!("user auth requested");
+
             if user_auth.state != state {
                 panic!("States are not equal, aborting");
             }
@@ -171,6 +174,7 @@ fn handle_connection(mut stream: TcpStream) -> UserAuth {
         .map(|result| result.unwrap())
         .take_while(|line| !line.is_empty())
         .collect();
+    
 
     
     let mut get_line: Vec<_> = http_req[0].split('?').collect();
@@ -202,6 +206,8 @@ pub fn req_token(client: &Client, user_auth: UserAuth, client_id: &ClientID) -> 
         .form(&params)
         .send().expect("sending failed");
     // println!("{:#?}", res.text());
+    println!("token requested");
+
     let token_res = res.json::<TokenRes>().expect("failed to convert to a struct");
     write_refresh_token_to_file(&token_res);
 
@@ -226,6 +232,8 @@ pub fn req_track_analysis(client: &Client, token: &TokenRes, track_id: &str) -> 
     let res = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
+    println!("track analysis requested");
+
     res.json::<TrackAnalysis>()
 }
 
@@ -234,6 +242,8 @@ pub fn req_playback_state(client: &Client, token: &TokenRes) -> reqwest::Result<
     let res = client.get("https://api.spotify.com/v1/me/player")
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
+    println!("playback state requested");
+
     // println!("{:#?}", res.text());
     res.json::<PlaybackState>()
 }

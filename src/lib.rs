@@ -1,11 +1,13 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::{fs::{ self, File }, net::TcpStream };
+use std::{fs::{ self, File }, net::TcpStream, string };
 use std::io::{prelude::*, BufReader};
 use rand::{ thread_rng, Rng };
 use sha2::{ Sha256, Digest };
 use base64::{engine::general_purpose, Engine as _};
 use std::net::TcpListener;
+
+pub mod process;
 
 const REDIRECT_URI: &str = "http://localhost:8080";
 
@@ -61,40 +63,55 @@ impl TokenRes {
             .header("Content-Type", "application/x-www-from-urlencoded")
             .form(&params)
             .send().expect("requesting refreshing token failed");
-        res.json::<TokenRes>().expect("failed to convert refreshe_token response to struct")
+        //println!("{:#?}", res.text());
+        
+        let token_res = res.json::<TokenRes>().expect("failed to convert refresh_token response to struct");
+        write_refresh_token_to_file(&token_res);
+        token_res
+        //TokenRes{access_token: String::new(), token_type: String::new(), expires_in: 0, refresh_token: String::new()}
 
     }
 }
 
 // holds a track analysis data from the API
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct TrackAnalysis {
     pub track: TrackSection,
-    pub bars: Vec<BarSection>
+    pub bars: Vec<BBTSection>,
+    pub beats: Vec<BBTSection>
 }
 
 // a part of the TrackAnalysis that holds track info
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct TrackSection {
     pub tempo: f64
 }
 
 // a part of the TrackAnalysis that holds bar info
-#[derive(Deserialize, Debug)]
-pub struct BarSection {
+#[derive(Deserialize, Debug, Default)]
+pub struct BBTSection {
     pub start: f64,
     pub duration: f64,
     pub confidence: f64
 }
 
 // holds a playback state from an API
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct PlaybackState {
-    pub item: ItemSection
+    pub item: ItemSection,
+    pub progress_ms: u128,
+    pub is_playing: bool
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct ItemSection {
+    pub name: String,
+    pub artists: Vec<ArtistSection>,
+    pub id: String
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct ArtistSection {
     pub name: String
 }
 
@@ -205,18 +222,18 @@ fn read_refresh_token_from_file() -> std::io::Result<String> {
 }
 
 // requests a track analysis from an API
-pub fn req_track_analysis(client: &Client, token: &TokenRes, track_id: &str) -> TrackAnalysis {
+pub fn req_track_analysis(client: &Client, token: &TokenRes, track_id: &str) -> reqwest::Result<TrackAnalysis> {
     let res = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
-    res.json::<TrackAnalysis>().expect("failed to convert track analysis to structs")
+    res.json::<TrackAnalysis>()
 }
 
 // requests a playback state from an API
-pub fn req_playback_state(client: &Client, token: &TokenRes) -> PlaybackState {
+pub fn req_playback_state(client: &Client, token: &TokenRes) -> reqwest::Result<PlaybackState> {
     let res = client.get("https://api.spotify.com/v1/me/player")
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
     // println!("{:#?}", res.text());
-    res.json::<PlaybackState>().expect("failed to convert playback state to structs")
+    res.json::<PlaybackState>()
 }

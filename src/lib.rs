@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::{fs::{ self, File }, net::TcpStream };
+use std::{fs::{ self, File }, net::TcpStream, thread, time::Duration };
 use std::io::{prelude::*, BufReader};
 use rand::{ thread_rng, Rng };
 use sha2::{ Sha256, Digest };
@@ -36,13 +36,13 @@ impl ClientID {
 pub struct TokenRes {
     access_token: String,
     token_type: String,
-    expires_in: i32,
+    expires_in: u64,
     refresh_token: String
 }
 
 impl TokenRes {
-    pub fn new(client: &Client, client_id: &ClientID) -> TokenRes {
-        match read_refresh_token_from_file() {
+    pub fn new(client: &Client, client_id: &ClientID, tx: std::sync::mpsc::Sender<bool>) -> TokenRes {
+        let token_res = match read_refresh_token_from_file() {
             Ok(refresh_token) => {
                 TokenRes{access_token: String::new(), token_type: String::new(), expires_in: 0, refresh_token}.refresh_token(client, client_id)
             }
@@ -50,25 +50,35 @@ impl TokenRes {
                 println!("Error occured wher reading a file: {e}. Requesting a user auth");
                 req_token(client, req_user_auth(client_id), client_id)
             }
-        }
+        };
+        token_res.expiration_guard(tx);
+        token_res
+    }
+
+    fn expiration_guard(&self, tx: std::sync::mpsc::Sender<bool>) {
+        let duration = Duration::from_secs(self.expires_in - 90);
+        thread::spawn(move || {
+            thread::sleep(duration);
+            tx.send(true).unwrap();
+        });
     }
 
     pub fn get_token(&self) -> String {
         self.token_type.clone() + " " + self.access_token.as_str()
     }
 
-    fn refresh_token(self, client: &Client, client_id: &ClientID) -> TokenRes {
+    pub fn refresh_token(self, client: &Client, client_id: &ClientID) -> TokenRes {
         let params = [("grant_type", "refresh_token"), ("refresh_token", self.refresh_token.as_str()), ("client_id", client_id.get())];
         let res = client.post("https://accounts.spotify.com/api/token")
             .header("Content-Type", "application/x-www-from-urlencoded")
             .form(&params)
             .send().expect("requesting refreshing token failed");
-        println!("refresh token requested");
+        // println!("refresh token requested");
         
         let token_res = res.json::<TokenRes>().expect("failed to convert refresh_token response to struct");
         write_refresh_token_to_file(&token_res);
         token_res
-        //TokenRes{access_token: String::new(), token_type: String::new(), expires_in: 0, refresh_token: String::new()}
+        // TokenRes{access_token: String::new(), token_type: String::new(), expires_in: 0, refresh_token: String::new()}
 
     }
 }
@@ -101,7 +111,8 @@ pub struct BBTSection {
 pub struct PlaybackState {
     pub item: ItemSection,
     pub progress_ms: u128,
-    pub is_playing: bool
+    pub is_playing: bool,
+    pub timestamp: u128
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -155,7 +166,7 @@ pub fn req_user_auth(client_id: &ClientID) -> UserAuth {
     match listener.accept() {
         Ok((socket, _addr)) => {
             let user_auth = handle_connection(socket);
-            println!("user auth requested");
+            // println!("user auth requested");
 
             if user_auth.state != state {
                 panic!("States are not equal, aborting");
@@ -206,7 +217,7 @@ pub fn req_token(client: &Client, user_auth: UserAuth, client_id: &ClientID) -> 
         .form(&params)
         .send().expect("sending failed");
     // println!("{:#?}", res.text());
-    println!("token requested");
+    // println!("token requested");
 
     let token_res = res.json::<TokenRes>().expect("failed to convert to a struct");
     write_refresh_token_to_file(&token_res);
@@ -232,7 +243,7 @@ pub fn req_track_analysis(client: &Client, token: &TokenRes, track_id: &str) -> 
     let res = client.get("https://api.spotify.com/v1/audio-analysis/".to_owned() + track_id)
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
-    println!("track analysis requested");
+    // println!("track analysis requested");
 
     res.json::<TrackAnalysis>()
 }
@@ -242,7 +253,7 @@ pub fn req_playback_state(client: &Client, token: &TokenRes) -> reqwest::Result<
     let res = client.get("https://api.spotify.com/v1/me/player")
         .header("Authorization", token.get_token())
         .send().expect("getting track audio analysis failed");
-    println!("playback state requested");
+    // println!("playback state requested");
 
     // println!("{:#?}", res.text());
     res.json::<PlaybackState>()

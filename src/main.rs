@@ -41,19 +41,18 @@ fn main() {
             beats_thread = stop_thread(beats_thread, tx.clone());
             thread::sleep(SLEEP_TIME);
             continue;
-            
         }
         let another_track = new_playback_state.item.id != playback_state.item.id;
 
         let skipped = playback_state.timestamp != new_playback_state.timestamp;
         if skipped {
-            println!("skipped\n");
+            // println!("skipped\n");
             playback_state = new_playback_state;
             now = Instant::now();
             progress = Duration::from_millis(playback_state.progress_ms as u64);
 
             if another_track {
-                println!("track changed\n");
+                // println!("track changed\n");
                 track_analysis = match ledify::req_track_analysis(&client, &token, &playback_state.item.id) {
                     Ok(res) => {
                         let mut artists_string = String::new();
@@ -64,10 +63,11 @@ fn main() {
                         artists_string.pop();
                         artists_string.pop();                        
                         
-                        playback_state.item.name = brutal_cut(playback_state.item.name );
                         playback_state.item.name = convert_polish(playback_state.item.name );
-                        artists_string = brutal_cut(artists_string);
+                        playback_state.item.name = brutal_cut(playback_state.item.name );
+
                         artists_string = convert_polish(artists_string);
+                        artists_string = brutal_cut(artists_string);
             
                         send_title_and_artists(&playback_state.item.name, &artists_string, Arc::clone(&usb_connection));
                         res
@@ -133,7 +133,7 @@ fn blink(mut usb_connection: MutexGuard<Box<dyn SerialPort>>, section: ledify::S
     let mode = if section.loudness > -11.5 {"1"} else {"0"};
     let str = "1".to_owned() + mode;
     usb_connection.write_all(str.as_bytes()).expect("failed to write to the USB");
-    println!("{}: {}", section.start, section.loudness);
+    // println!("{}: {}", section.start, section.loudness);
 }
 
 fn send_title_and_artists(title: &str, artists: &str, usb_connection: Arc<Mutex<Box<dyn SerialPort>>>) {
@@ -144,14 +144,12 @@ fn send_title_and_artists(title: &str, artists: &str, usb_connection: Arc<Mutex<
 
 fn iter_beats(units: Vec<ledify::BBTSection>, sections: Vec<ledify::SectionSection>, now: Instant, progress: Duration, rx: Receiver<bool>, usb_connection: Arc<Mutex<Box<dyn SerialPort>>>) {
     let latency = Duration::from_millis(1);
-    // let mut to_blink = false;
     let mut sections = sections.iter();
     let mut section = sections.next();
-    for (num, i) in units.iter().enumerate() {
+    for i in units.iter() {
         if rx.try_recv().unwrap_or(false) {
             return;
         }
-
 
         if let Some(inner) = section {
             if inner.start + inner.duration <= i.start + 0.001 {
@@ -167,36 +165,17 @@ fn iter_beats(units: Vec<ledify::BBTSection>, sections: Vec<ledify::SectionSecti
         }
         let con_clone = Arc::clone(&usb_connection);
         let section_clone = section.unwrap().clone();
-        println!("{}: {}", num, i.start);
+        // println!("{}: {}", num, i.start);
 
         thread::spawn(move || {
             blink(con_clone.lock().expect("Couldn't get access to the usb"), section_clone);
         });
-   
-        // if progress + now.elapsed() > Duration::from_secs_f64(i.start) {
-        //     to_blink = false;
-        //     println!("{num} skipped");
-        //     continue;
-        // } else if to_blink {
-        //     let con_clone = Arc::clone(&usb_connection);
-        //     thread::spawn(move || {
-        //         println!("{}", num);
-        //         blink(con_clone.lock().expect("Couldn't get access to the usb"));
-        //     });          
-        // }
-        // loop {
-        //     if progress + now.elapsed() >= Duration::from_secs_f64(i.start + i.duration) {
-        //         break;
-        //     }
-        //     thread::sleep(latency);
-        // }
-        // to_blink = true;
     }
 }
 
 
 fn stop_thread(thread_handle: Option<thread::JoinHandle<()>>, tx: mpsc::Sender<bool>) -> Option<JoinHandle<()>> {
-    println!("stop thread called");
+    // println!("stop thread called");
     if let Some(el) = thread_handle {
         let _ = tx.send(true);
         el.join().unwrap();

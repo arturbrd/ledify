@@ -89,7 +89,8 @@ pub struct TrackAnalysis {
     pub track: TrackSection,
     pub bars: Vec<BBTSection>,
     pub beats: Vec<BBTSection>,
-    pub tatums: Vec<BBTSection>
+    pub tatums: Vec<BBTSection>,
+    pub sections: Vec<SectionSection>
 }
 
 // a part of the TrackAnalysis that holds track info
@@ -103,7 +104,13 @@ pub struct TrackSection {
 pub struct BBTSection {
     pub start: f64,
     pub duration: f64,
-    pub confidence: f64
+}
+
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct SectionSection {
+    pub start: f64,
+    pub duration: f64,
+    pub loudness: f64
 }
 
 // holds a playback state from an API

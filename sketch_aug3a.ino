@@ -5,7 +5,7 @@
 #define BLUE 11
 #define DELAY 1
 #define CUT 256
-#define STARITNG 128
+#define STARITNG 0
 
 LiquidCrystal lcd(2, 3, 4, 5, 6, 7);
 
@@ -19,9 +19,11 @@ void setup() {
   pinMode(RED, OUTPUT);
   pinMode(GREEN, OUTPUT);
   pinMode(BLUE, OUTPUT);
-  analogWrite(RED, 0);
-  analogWrite(GREEN, 0);
-  analogWrite(BLUE, 0);
+            analogWrite(RED, 0);
+
+            analogWrite(GREEN, 0);
+
+            analogWrite(BLUE, 0);
 
 }
   
@@ -32,58 +34,100 @@ void loop() {
   String str;
   str = Serial.readString();
   if (str != "") {
-    String to_blink = str.substring(0, 1);
-    
-    if (to_blink == "1") {
-      switch (counter) {
-        case 0:
-          for(int i = STARITNG; i<CUT; i++) {
-            analogWrite(BLUE, i);
-            delay(DELAY);
+    if (str[0] == '1') {
+      if (str[1] == '1') {
+        analogWrite(RED, 255);
+        analogWrite(GREEN, 255);
+        analogWrite(BLUE, 255);
+        switch (counter) {
+          case 0:
+            for(int i = STARITNG; i<CUT; i++) {
+              analogWrite(BLUE, i);
+              delay(DELAY);
+            }
+            break;
+          case 1:
+            for(int i = STARITNG; i<CUT; i++) {
+              analogWrite(GREEN, i);
+              analogWrite(BLUE, i);
+              delay(DELAY);
+            }
+            break;
+          case 2:
+            for(int i = STARITNG; i<CUT; i++) {
+              analogWrite(GREEN, i);
+              delay(DELAY);
+            }
+            break;
+          case 3:
+            for(int i = STARITNG; i<CUT; i++) {
+              analogWrite(RED, i);
+              analogWrite(GREEN, i);
+              delay(DELAY);
+            }
+            break;
+          case 4:
+            for(int i = STARITNG; i<CUT; i++) {
+              analogWrite(RED, i);
+              delay(DELAY);
+            }
+            break;
+          case 5:
+            for(int i = STARITNG; i<CUT; i++) {
+              analogWrite(RED, i);
+              analogWrite(BLUE, i);
+              delay(DELAY);
+            }
+            counter = -1;
+            break;
+        }
+        counter++;
+      } else {
+        static bool div = false;
+        switch (counter) {
+          case 0:
+            analogWrite(RED, 0);
+            analogWrite(GREEN, 255);
+            analogWrite(BLUE, 255);
+            break;
+          case 1:
+            analogWrite(RED, 0);
+            analogWrite(GREEN, 0);
+            analogWrite(BLUE, 255);
+            break;
+          case 2:
+            analogWrite(RED, 255);
+            analogWrite(GREEN, 0);
+            analogWrite(BLUE, 255);
+            break;
+          case 3:
+            analogWrite(RED, 255);
+            analogWrite(GREEN, 0);
+            analogWrite(BLUE, 0);
+            break;
+          case 4:
+            analogWrite(RED, 255);
+            analogWrite(GREEN, 255);
+            analogWrite(BLUE, 0);
+            break;
+          case 5:
+            analogWrite(RED, 0);
+            analogWrite(GREEN, 255);
+            analogWrite(BLUE, 0);
+            counter = -1;
+            break;
+        }
+        if (div) {
+          if (counter == 5) {
+            counter = -1;
           }
-          break;
-        case 1:
-          for(int i = STARITNG; i<CUT; i++) {
-            analogWrite(GREEN, i);
-            analogWrite(BLUE, i);
-            delay(DELAY);
-          }
-          break;
-        case 2:
-          for(int i = STARITNG; i<CUT; i++) {
-            analogWrite(GREEN, i);
-            delay(DELAY);
-          }
-          break;
-        case 3:
-          for(int i = STARITNG; i<CUT; i++) {
-            analogWrite(RED, i);
-            analogWrite(GREEN, i);
-            delay(DELAY);
-          }
-          break;
-        case 4:
-          for(int i = STARITNG; i<CUT; i++) {
-            analogWrite(RED, i);
-            delay(DELAY);
-          }
-          break;
-        case 5:
-          for(int i = STARITNG; i<CUT; i++) {
-            analogWrite(RED, i);
-            analogWrite(BLUE, i);
-            delay(DELAY);
-          }
-          counter = -1;
-          break;
+          counter++;
+        }
+        div = !div;
+
       }
-      counter++;
       
-      analogWrite(RED, 255);
-      analogWrite(GREEN, 255);
-      analogWrite(BLUE, 255);
-    }
-    else {
+    } else {
       int i = str.indexOf("&");
       String title = str.substring(1, i);
       String artists = str.substring(i+1, str.length());

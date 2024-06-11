@@ -7,8 +7,6 @@ use sha2::{ Sha256, Digest };
 use base64::{engine::general_purpose, Engine as _};
 use std::net::TcpListener;
 
-pub mod process;
-
 const REDIRECT_URI: &str = "http://localhost:8080";
 
 // reads from the file and holds a client id and a secret
